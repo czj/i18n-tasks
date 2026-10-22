@@ -70,7 +70,7 @@ module I18n::Tasks
         end
         @trees&.delete(locale)
         @available_locales = nil
-        @paths_by_pattern = nil
+        @paths_by_pattern = nil unless paths_before == paths_after
       end
 
       alias_method :[]=, :set
@@ -170,8 +170,13 @@ module I18n::Tasks
 
       def read_locale(locale, paths: config[:read])
         Array(paths).flat_map do |pattern|
+          next paths_for_any_locale(pattern) unless pattern.include?("%{locale}")
+
           locale_glob = format(pattern, locale: locale)
-          paths_for_any_locale(pattern).select { |path| File.fnmatch?(locale_glob, path, LOCALE_GLOB_FLAGS) }
+          # A path of this locale contains it: checking that first skips most of the `fnmatch?` calls.
+          paths_for_any_locale(pattern).select do |path|
+            path.include?(locale) && File.fnmatch?(locale_glob, path, File::FNM_PATHNAME | File::FNM_EXTGLOB)
+          end
         end.map do |path|
           [path.freeze, load_file(path) || {}]
         end.map do |path, data|
@@ -185,10 +190,8 @@ module I18n::Tasks
         end.reduce(Tree::Siblings[locale => {}], :merge!)
       end
 
-      LOCALE_GLOB_FLAGS = File::FNM_PATHNAME | File::FNM_EXTGLOB
-
-      # Globbing the files of each locale walks the same directories once per locale.
-      # @param [String] pattern a `read` pattern, with a %{locale} placeholder
+      # Globbed once for all the locales, which then pick their own paths, instead of once per locale.
+      # @param [String] pattern a `read` or `external` pattern
       # @return [Array<String>] the paths matching the pattern for any locale
       def paths_for_any_locale(pattern)
         (@paths_by_pattern ||= {})[pattern] ||= Dir.glob(format(pattern, locale: "*"))

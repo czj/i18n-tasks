@@ -59,6 +59,18 @@ RSpec.describe "File system i18n" do
       end
     end
 
+    it "globs the files again only when writing a locale changes them" do
+      data.config = {read: ["config/locales/%{locale}.yml"], write: ["config/locales/%{locale}.yml"]}
+      TestCodebase.setup("config/locales/en.yml" => {en: {a: "A"}})
+      TestCodebase.in_test_app_dir do
+        expect(Dir).to receive(:glob).twice.and_call_original
+        data.set(:en, data.get(:en))
+        data[:de] = I18n::Tasks::Data::Tree::Siblings.from_nested_hash("de" => {"a" => "A"})
+        expect(data.available_locales.sort).to eq(%w[de en])
+        expect(data.get(:de).leaves.map { |node| node.data[:path] }).to eq(%w[config/locales/de.yml])
+      end
+    end
+
     it "includes problematic YAML file path in exception message" do
       data.config = {read: ["invalid.yml"]}
       TestCodebase.setup("invalid.yml" => "%")
